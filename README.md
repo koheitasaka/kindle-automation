@@ -21,6 +21,8 @@
 *   Python 3.x
 *   Kindle for Mac
 
+> **Windows をお使いの方へ:** Windows 11 + Kindle for PC 向けの移植版があります。バックグラウンド実行（作業しながらキャプチャ）やOCR付きPDF生成にも対応しています。詳しくは [README_WIN.md](./README_WIN.md) をご覧ください。
+
 ## セットアップ
 
 ### 1. リポジトリのクローン
@@ -84,9 +86,18 @@ python3 make_pdf.py
 
 ## ファイル構成
 
+### macOS版
 *   `kindle_shot_v7_auto.py`: 縦書き本用の自動スクリーンショットスクリプト
 *   `kindle_shot_horizontal_auto.py`: 横書き本用の自動スクリーンショットスクリプト
 *   `make_pdf.py`: キャプチャした画像からOCR付きPDFを生成するスクリプト
+
+### Windows版
+*   `kindle_capture.py`: キャプチャスクリプト（縦書き/横書き統合、バックグラウンド対応）
+*   `make_pdf_win.py`: PDF生成スクリプト（OCR対応）
+*   `requirements.txt`: Python依存パッケージ一覧
+*   `README_WIN.md`: Windows版セットアップ・使い方ガイド
+
+### 共通
 *   `review_modal_template_v2.png`: レビューモーダル検出用のテンプレート画像
 
 ## 注意事項
