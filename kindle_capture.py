@@ -11,6 +11,7 @@ Usage:
     python kindle_capture.py --delay 2.0      # ページめくり待機時間を変更
     python kindle_capture.py --max-pages 500  # 最大ページ数を変更
     python kindle_capture.py --output-dir ./out  # 出力先を変更
+    python kindle_capture.py --dup-threshold 0.95  # 重複検出の閾値を変更
 """
 
 import argparse
@@ -206,28 +207,33 @@ def detect_modal(screenshot_path: str, template_path: str, threshold: float = 0.
         return False
 
 
-def detect_duplicate(prev_path: str, curr_path: str, threshold: float = 0.99) -> bool:
-    """前ページと現ページが同一（最終ページ到達）かを判定する"""
+def detect_duplicate(prev_path: str, curr_path: str, threshold: float = 0.97) -> float:
+    """前ページと現ページの類似度を返す。比較不能時は 0.0 を返す。
+
+    Note: PrintWindow APIでキャプチャした場合、ウィンドウクロム（タイトルバー、
+    ツールバー等）の微妙なレンダリング差異により完全一致(1.0)にならないことがある。
+    そのため閾値を 0.97 に設定し、連続類似検出と組み合わせて最終ページを判定する。
+    """
     if prev_path is None or not os.path.exists(prev_path):
-        return False
+        return 0.0
 
     try:
         prev = cv2.imread(prev_path, cv2.IMREAD_GRAYSCALE)
         curr = cv2.imread(curr_path, cv2.IMREAD_GRAYSCALE)
 
         if prev is None or curr is None:
-            return False
+            return 0.0
         if prev.shape != curr.shape:
-            return False
+            return 0.0
 
         res = cv2.matchTemplate(curr, prev, cv2.TM_CCOEFF_NORMED)
-        similarity = res[0][0]
-        if similarity >= threshold:
-            print(f"  -> 同一ページ検出 (similarity: {similarity:.4f}) — 最終ページと判断")
-            return True
-        return False
+        return float(res[0][0])
     except Exception:
-        return False
+        return 0.0
+
+
+# 連続類似検出で最終ページ到達と判定するためのデフォルト回数
+CONSECUTIVE_SIMILAR_LIMIT = 3
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +283,12 @@ def parse_args():
         action="store_true",
         help="モーダル検出を無効化（Ctrl+C で手動停止）",
     )
+    parser.add_argument(
+        "--dup-threshold",
+        type=float,
+        default=0.97,
+        help="重複ページ検出の類似度閾値 (default: 0.97)",
+    )
     return parser.parse_args()
 
 
@@ -299,6 +311,7 @@ def main():
     print(f"  保存先: {save_dir}")
     print(f"  ページめくり待機: {args.delay}s")
     print(f"  最大ページ数: {args.max_pages}")
+    print(f"  重複検出: threshold={args.dup_threshold}, 連続{CONSECUTIVE_SIMILAR_LIMIT}回で停止")
 
     has_template = os.path.exists(TEMPLATE_PATH) and not args.no_modal_detection
     if has_template:
@@ -323,6 +336,7 @@ def main():
 
         prev_path = None
         index = 1
+        consecutive_similar = 0
 
         try:
             while index <= args.max_pages:
@@ -344,9 +358,22 @@ def main():
                     os.remove(filepath)
                     break
 
-                if detect_duplicate(prev_path, filepath):
-                    os.remove(filepath)
-                    break
+                similarity = detect_duplicate(prev_path, filepath)
+                if similarity >= args.dup_threshold:
+                    consecutive_similar += 1
+                    print(f"  -> 類似ページ検出 (similarity: {similarity:.4f}, "
+                          f"連続: {consecutive_similar}/{CONSECUTIVE_SIMILAR_LIMIT})")
+                    if consecutive_similar >= CONSECUTIVE_SIMILAR_LIMIT:
+                        print("  -> 最終ページと判断。キャプチャを停止します。")
+                        # 連続類似分のファイルを削除
+                        for i in range(consecutive_similar):
+                            dup_path = os.path.join(save_dir, f"page_{index - i:04d}.png")
+                            if os.path.exists(dup_path):
+                                os.remove(dup_path)
+                        index -= consecutive_similar
+                        break
+                else:
+                    consecutive_similar = 0
 
                 prev_path = filepath
                 time.sleep(0.3)
@@ -374,6 +401,7 @@ def main():
 
         prev_path = None
         index = 1
+        consecutive_similar = 0
 
         try:
             while index <= args.max_pages:
@@ -394,9 +422,21 @@ def main():
                     os.remove(filepath)
                     break
 
-                if detect_duplicate(prev_path, filepath):
-                    os.remove(filepath)
-                    break
+                similarity = detect_duplicate(prev_path, filepath)
+                if similarity >= args.dup_threshold:
+                    consecutive_similar += 1
+                    print(f"  -> 類似ページ検出 (similarity: {similarity:.4f}, "
+                          f"連続: {consecutive_similar}/{CONSECUTIVE_SIMILAR_LIMIT})")
+                    if consecutive_similar >= CONSECUTIVE_SIMILAR_LIMIT:
+                        print("  -> 最終ページと判断。キャプチャを停止します。")
+                        for i in range(consecutive_similar):
+                            dup_path = os.path.join(save_dir, f"page_{index - i:04d}.png")
+                            if os.path.exists(dup_path):
+                                os.remove(dup_path)
+                        index -= consecutive_similar
+                        break
+                else:
+                    consecutive_similar = 0
 
                 prev_path = filepath
                 time.sleep(0.3)
